@@ -1,0 +1,59 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Pytest
+.pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Generated reports
+reports/
+
+# Logs
+*.log
+
+# Trace files
+*.blf
+*.BLF
+*.asc
+*.mf4
+*.dlt
+*.pcap
+
+# DBC files
+*.dbc
+*.DBC
+
+# Generated reports
+reports/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
