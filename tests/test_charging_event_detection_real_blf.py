@@ -30,6 +30,23 @@ TEST_SIGNALS = [
     "HVLM_ZustandLadeablauf",
 ]
 
+EXPECTED_EVENT_TYPES = {
+    "CHARGING_PERMISSION_DENIED",
+    "VEHICLE_NOT_READY",
+    "CHARGING_READINESS_NOT_ACHIEVED",
+    "HV_CONTACTOR_OPEN_OR_WELD_DETECTION",
+    "CHARGING_NOT_REQUESTED",
+    "CHARGING_STATE_MACHINE_ERROR",
+}
+
+EXPECTED_CATEGORIES = {
+    "charging_inhibition",
+    "charging_readiness",
+    "high_voltage_system",
+    "charging_request",
+    "charging_state",
+}
+
 
 def test_charging_event_detection_real_blf() -> None:
     assert BLF_FILE.exists(), f"BLF file not found: {BLF_FILE}"
@@ -60,7 +77,7 @@ def test_charging_event_detection_real_blf() -> None:
 
             decoded_message = decoder.decode_can_message(
                 dbc_file=DBC_FILE,
-                timestamp=event.timestamp,
+                timestamp=event.timestamp.timestamp(),
                 channel=event.payload.get("channel", 0),
                 arbitration_id=arbitration_id,
                 data=bytes.fromhex(data_hex),
@@ -90,32 +107,34 @@ def test_charging_event_detection_real_blf() -> None:
     event_detection_service = ChargingEventDetectionService()
     detected_events = event_detection_service.detect_events(timeline)
 
-    print()
-    print(f"Decoded Messages: {len(decoded_messages)}")
-    print()
-    print("Signal Sample Counts")
-    print("=" * 80)
-
-    for signal_name, samples in signal_samples.items():
-        print(f"{signal_name}: {len(samples)}")
-
-    print()
-    print("Detected Charging Events")
-    print("=" * 80)
-
-    for detected_event in detected_events:
-        print(
-            f"{detected_event['timestamp']} | "
-            f"{detected_event['signal']} | "
-            f"{detected_event['value']} | "
-            f"{detected_event['description']}"
-        )
-
-    print()
-    print(f"Signals Found: {len(signal_samples)}")
-    print(f"Timeline Events: {len(timeline)}")
-    print(f"Detected Events: {len(detected_events)}")
-
     assert signal_samples
     assert timeline
     assert detected_events
+
+    for detected_event in detected_events:
+        assert set(detected_event) == {
+            "timestamp",
+            "signal",
+            "value",
+            "description",
+            "event_type",
+            "category",
+        }
+        assert detected_event["timestamp"] != 0.0
+        assert detected_event["signal"] in TEST_SIGNALS
+        assert detected_event["description"]
+        assert detected_event["event_type"] in EXPECTED_EVENT_TYPES
+        assert detected_event["category"] in EXPECTED_CATEGORIES
+
+    detected_event_types = {
+        event["event_type"]
+        for event in detected_events
+    }
+
+    detected_categories = {
+        event["category"]
+        for event in detected_events
+    }
+
+    assert detected_event_types <= EXPECTED_EVENT_TYPES
+    assert detected_categories <= EXPECTED_CATEGORIES

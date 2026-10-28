@@ -4,27 +4,51 @@ class ChargingEventDetectionService:
         (
             "HVLM_CDO_LadeerlaubnisLm",
             "LadenNichtErlaubt",
-        ): "Charge permission denied",
+        ): {
+            "description": "Charge permission denied",
+            "event_type": "CHARGING_PERMISSION_DENIED",
+            "category": "charging_inhibition",
+        },
         (
             "HVLM_CDO_LadebereitFzg",
             "keine_Ladebereitschaft",
-        ): "Vehicle not ready for charging",
+        ): {
+            "description": "Vehicle not ready for charging",
+            "event_type": "VEHICLE_NOT_READY",
+            "category": "charging_readiness",
+        },
         (
             "HVLM_CJ_LadebereitschaftFzg",
             "not_ready",
-        ): "Charging readiness not achieved",
+        ): {
+            "description": "Charging readiness not achieved",
+            "event_type": "CHARGING_READINESS_NOT_ACHIEVED",
+            "category": "charging_readiness",
+        },
         (
             "HVLM_CDO_Status_Fahrzeug",
             "HVSchuetze_offen_o_Weld_Det",
-        ): "HV contactors open or weld detection active",
+        ): {
+            "description": "HV contactors open or weld detection active",
+            "event_type": "HV_CONTACTOR_OPEN_OR_WELD_DETECTION",
+            "category": "high_voltage_system",
+        },
         (
             "HVLM_Ladevorgang_Anf",
             "Laden_nicht_angefordert",
-        ): "Charging not requested",
+        ): {
+            "description": "Charging not requested",
+            "event_type": "CHARGING_NOT_REQUESTED",
+            "category": "charging_request",
+        },
         (
             "HVLM_ZustandLadeablauf",
             "Fehler",
-        ): "Charging state machine entered error state",
+        ): {
+            "description": "Charging state machine entered error state",
+            "event_type": "CHARGING_STATE_MACHINE_ERROR",
+            "category": "charging_state",
+        },
     }
 
     def detect_events(
@@ -40,11 +64,11 @@ class ChargingEventDetectionService:
             value = timeline_event["new_value"]
             value_text = str(value)
 
-            description = self.EVENT_MAPPINGS.get(
+            classification = self.EVENT_MAPPINGS.get(
                 (signal, value_text)
             )
 
-            if not description:
+            if not classification:
                 continue
 
             events.append(
@@ -52,7 +76,9 @@ class ChargingEventDetectionService:
                     "timestamp": timeline_event["timestamp"],
                     "signal": signal,
                     "value": value_text,
-                    "description": description,
+                    "description": classification["description"],
+                    "event_type": classification["event_type"],
+                    "category": classification["category"],
                 }
             )
 
