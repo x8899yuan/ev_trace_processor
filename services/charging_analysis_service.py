@@ -90,8 +90,8 @@ class ChargingAnalysisService:
                 decoded_message = (
                     decoder.decode_can_message(
                         dbc_file=dbc_file,
-                        timestamp=0.0,
-                        channel=0,
+                        timestamp=event.timestamp.timestamp(),
+                        channel=event.payload.get("channel", 0),
                         arbitration_id=arbitration_id,
                         data=bytes.fromhex(
                             data_hex
