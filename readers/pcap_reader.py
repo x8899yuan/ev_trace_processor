@@ -1,38 +1,26 @@
+from datetime import datetime, timezone
 from pathlib import Path
 
+import dpkt
+
 from models.processed_trace import ProcessedTrace
+from models.trace_event import TraceEvent
 from models.trace_metadata import TraceMetadata
 from readers.base_reader import BaseReader
 
 
 class PcapReader(BaseReader):
-    """
-    Reader for PCAP trace files.
-
-    Milestone 1 implementation:
-    - Validate file extension
-    - Validate file existence
-    - Create metadata
-    - Return empty ProcessedTrace
-
-    Actual PCAP parsing will be added later.
-    """
-
     SUPPORTED_EXTENSION = ".pcap"
 
     def supports(self, file_path: Path) -> bool:
-        """
-        Return True if the file is a PCAP trace.
-        """
-        return (
-            file_path.suffix.lower()
-            == self.SUPPORTED_EXTENSION
-        )
+        return file_path.suffix.lower() == self.SUPPORTED_EXTENSION
 
     def read(self, file_path: Path) -> ProcessedTrace:
-        """
-        Read a PCAP file.
-        """
+        if not self.supports(file_path):
+            raise ValueError(
+                f"Unsupported PCAP file extension: {file_path.suffix}"
+            )
+
         if not file_path.exists():
             raise FileNotFoundError(
                 f"PCAP file not found: {file_path}"
@@ -44,6 +32,27 @@ class PcapReader(BaseReader):
             file_size_bytes=file_path.stat().st_size,
         )
 
+        events = []
+
+        with file_path.open("rb") as file:
+            reader = dpkt.pcap.Reader(file)
+
+            for timestamp, buffer in reader:
+                event = TraceEvent(
+                    timestamp=datetime.fromtimestamp(
+                        float(timestamp),
+                        tz=timezone.utc,
+                    ),
+                    source_type="PCAP",
+                    event_name="packet",
+                    payload={
+                        "raw_data": bytes(buffer),
+                        "captured_length": len(buffer),
+                    },
+                )
+                events.append(event)
+
         return ProcessedTrace(
-            metadata=metadata
+            metadata=metadata,
+            events=events,
         )

@@ -1,5 +1,5 @@
 from unittest.mock import patch
-
+import dpkt
 import pytest
 
 from models.processed_trace import ProcessedTrace
@@ -34,13 +34,30 @@ def test_process_blf_file(tmp_path) -> None:
 
 def test_process_pcap_file(tmp_path) -> None:
     trace_file = tmp_path / "vehicle_trace.pcap"
-    trace_file.write_bytes(b"")
+    packet_data = b"\x00\x11\x22\x33\x44\x55\x66\x77"
+
+    with trace_file.open("wb") as file:
+        writer = dpkt.pcap.Writer(file)
+        writer.writepkt(packet_data, ts=1700000000.5)
+        writer.close()
+
     service = TraceProcessingService()
 
     result = service.process(trace_file)
 
-    assert isinstance(result, ProcessedTrace)
+    assert result.metadata.file_path == trace_file
     assert result.metadata.trace_type == "PCAP"
+    assert result.metadata.file_size_bytes == trace_file.stat().st_size
+    assert result.event_count == 1
+    assert not result.is_empty
+
+    event = result.events[0]
+
+    assert event.source_type == "PCAP"
+    assert event.event_name == "packet"
+    assert event.timestamp.timestamp() == pytest.approx(1700000000.5)
+    assert event.payload["raw_data"] == packet_data
+    assert event.payload["captured_length"] == len(packet_data)
 
 
 def test_process_dlt_file(tmp_path) -> None:
