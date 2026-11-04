@@ -13,6 +13,7 @@ from readers.base_reader import BaseReader
 
 class PcapReader(BaseReader):
     SUPPORTED_EXTENSION = ".pcap"
+    HOMEPLUG_AV_ETHERTYPE = 0x88E1
 
     def supports(self, file_path: Path) -> bool:
         return file_path.suffix.lower() == self.SUPPORTED_EXTENSION
@@ -44,6 +45,11 @@ class PcapReader(BaseReader):
                     )
                 )
 
+        if events:
+            metadata.start_timestamp = events[0].timestamp
+            metadata.end_timestamp = events[-1].timestamp
+            metadata.event_count = len(events)
+
         return ProcessedTrace(metadata=metadata, events=events)
 
     def _decode_packet(self, buffer: bytes) -> tuple[str, dict[str, Any]]:
@@ -69,6 +75,13 @@ class PcapReader(BaseReader):
 
         network_data = ethernet.data
 
+        if ethernet.type == self.HOMEPLUG_AV_ETHERTYPE:
+            ethernet_payload = bytes(network_data)
+            payload["protocol"] = "HOMEPLUG_AV"
+            payload["ethernet_payload"] = ethernet_payload
+            payload["ethernet_payload_length"] = len(ethernet_payload)
+            return "HOMEPLUG_AV", payload
+
         if isinstance(network_data, dpkt.arp.ARP):
             self._decode_arp(network_data, payload)
             return "ARP", payload
@@ -80,6 +93,8 @@ class PcapReader(BaseReader):
             return self._decode_ipv6(network_data, payload)
 
         payload["protocol"] = "ETHERNET"
+        payload["ethernet_payload"] = bytes(network_data)
+        payload["ethernet_payload_length"] = len(network_data)
         return "Ethernet", payload
 
     def _decode_arp(self, packet: dpkt.arp.ARP, payload: dict[str, Any]) -> None:

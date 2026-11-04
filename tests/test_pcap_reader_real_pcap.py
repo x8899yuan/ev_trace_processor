@@ -1,82 +1,174 @@
-from datetime import timezone
+from datetime import datetime, timezone
 from pathlib import Path
+
+import pytest
 
 from readers.pcap_reader import PcapReader
 
 
-PCAP_FILE = (
-    Path(__file__).resolve().parents[1]
-    / "data"
-    / "pcap"
-    / "20250401105700-700006-40-G4-PWR-LOSS-OLD-SOFT-raw.pcap"
+PCAP_FILE = Path(
+    "data",
+    "pcap",
+    "20250401105700-700006-40-G4-PWR-LOSS-OLD-SOFT-raw.pcap",
 )
 
-VALID_EVENT_NAMES = {
-    "packet",
-    "Ethernet",
-    "ARP",
-    "IPv4",
-    "IPv6",
-    "UDP",
-    "TCP",
-}
+EXPECTED_EVENT_COUNT = 45868
+EXPECTED_SRC_MAC = "02:ab:01:d9:13:03"
+EXPECTED_DST_MAC = "00:00:ff:ff:00:ff"
+EXPECTED_ETHERTYPE = 0x88E1
 
 
-def test_pcap_reader_real_pcap():
-    assert PCAP_FILE.exists()
+def get_real_pcap():
+    if not PCAP_FILE.exists():
+        pytest.skip(f"Real PCAP file not available: {PCAP_FILE}")
 
-    reader = PcapReader()
-    assert reader.supports(PCAP_FILE)
+    return PCAP_FILE
 
-    trace = reader.read(PCAP_FILE)
 
-    assert trace.metadata.file_path == PCAP_FILE
-    assert trace.metadata.trace_type == "PCAP"
-    assert trace.metadata.file_size_bytes == PCAP_FILE.stat().st_size
-    assert trace.event_count > 0
+@pytest.fixture(scope="module")
+def trace():
+    return PcapReader().read(get_real_pcap())
+
+
+def test_real_pcap_event_count(trace):
+    assert trace.event_count == EXPECTED_EVENT_COUNT
+    assert trace.metadata.event_count == EXPECTED_EVENT_COUNT
     assert not trace.is_empty
 
-    previous_timestamp = None
-    identified_protocol = False
 
-    for event in trace.events:
-        assert event.source_type == "PCAP"
-        assert event.event_name in VALID_EVENT_NAMES
-        assert event.timestamp.tzinfo == timezone.utc
-        assert "raw_data" in event.payload
-        assert "captured_length" in event.payload
+def test_real_pcap_metadata(trace):
+    file_path = get_real_pcap()
 
-        raw_data = event.payload["raw_data"]
-        captured_length = event.payload["captured_length"]
+    assert trace.metadata.file_path == file_path
+    assert trace.metadata.file_name == file_path.name
+    assert trace.metadata.trace_type == "PCAP"
+    assert trace.metadata.file_size_bytes == file_path.stat().st_size
 
-        assert isinstance(raw_data, bytes)
-        assert captured_length == len(raw_data)
-        assert captured_length > 0
 
-        if event.event_name != "packet":
-            identified_protocol = True
-            assert "protocol" in event.payload
-            assert "src_mac" in event.payload
-            assert "dst_mac" in event.payload
-            assert "ether_type" in event.payload
+def test_real_pcap_timestamps(trace):
+    assert trace.metadata.start_timestamp == datetime(
+        2025,
+        4,
+        1,
+        17,
+        57,
+        1,
+        62925,
+        tzinfo=timezone.utc,
+    )
 
-        if event.event_name in {"IPv4", "IPv6", "UDP", "TCP"}:
-            assert "network_protocol" in event.payload
-            assert "src_ip" in event.payload
-            assert "dst_ip" in event.payload
+    assert trace.metadata.end_timestamp == datetime(
+        2025,
+        4,
+        1,
+        18,
+        18,
+        4,
+        331274,
+        tzinfo=timezone.utc,
+    )
 
-        if event.event_name in {"UDP", "TCP"}:
-            assert "src_port" in event.payload
-            assert "dst_port" in event.payload
-            assert "transport_payload" in event.payload
-            assert "transport_payload_length" in event.payload
-            assert event.payload["transport_payload_length"] == len(
-                event.payload["transport_payload"]
-            )
+    assert trace.events[0].timestamp == trace.metadata.start_timestamp
+    assert trace.events[-1].timestamp == trace.metadata.end_timestamp
 
-        if previous_timestamp is not None:
-            assert event.timestamp >= previous_timestamp
 
-        previous_timestamp = event.timestamp
+def test_real_pcap_timestamps_are_ordered(trace):
+    timestamps = [event.timestamp for event in trace.events]
 
-    assert identified_protocol
+    assert timestamps == sorted(timestamps)
+
+
+def test_real_pcap_source_type(trace):
+    assert all(
+        event.source_type == "PCAP"
+        for event in trace.events
+    )
+
+
+def test_real_pcap_homeplug_protocol(trace):
+    assert all(
+        event.event_name == "HOMEPLUG_AV"
+        for event in trace.events
+    )
+
+    assert all(
+        event.payload["protocol"] == "HOMEPLUG_AV"
+        for event in trace.events
+    )
+
+
+def test_real_pcap_homeplug_ethertype(trace):
+    assert all(
+        event.payload["ether_type"] == EXPECTED_ETHERTYPE
+        for event in trace.events
+    )
+
+
+def test_real_pcap_mac_pair(trace):
+    assert all(
+        event.payload["src_mac"] == EXPECTED_SRC_MAC
+        for event in trace.events
+    )
+
+    assert all(
+        event.payload["dst_mac"] == EXPECTED_DST_MAC
+        for event in trace.events
+    )
+
+
+def test_real_pcap_preserves_raw_frames(trace):
+    assert all(
+        isinstance(event.payload["raw_data"], bytes)
+        for event in trace.events
+    )
+
+    assert all(
+        event.payload["captured_length"]
+        == len(event.payload["raw_data"])
+        for event in trace.events
+    )
+
+
+def test_real_pcap_preserves_ethernet_payload(trace):
+    assert all(
+        isinstance(event.payload["ethernet_payload"], bytes)
+        for event in trace.events
+    )
+
+    assert all(
+        event.payload["ethernet_payload_length"]
+        == len(event.payload["ethernet_payload"])
+        for event in trace.events
+    )
+
+
+def test_real_pcap_first_packet(trace):
+    event = trace.events[0]
+
+    assert event.event_name == "HOMEPLUG_AV"
+    assert event.payload["protocol"] == "HOMEPLUG_AV"
+    assert event.payload["src_mac"] == EXPECTED_SRC_MAC
+    assert event.payload["dst_mac"] == EXPECTED_DST_MAC
+    assert event.payload["ether_type"] == EXPECTED_ETHERTYPE
+    assert event.payload["captured_length"] == 1319
+    assert event.payload["ethernet_payload_length"] == 1305
+
+    assert event.payload["ethernet_payload"][:16] == bytes.fromhex(
+        "01 14 a2 00 00 00 80 e1 "
+        "00 00 00 00 b2 ff ff 05"
+    )
+
+
+def test_real_pcap_known_frame_sizes(trace):
+    frame_sizes = {
+        event.payload["captured_length"]
+        for event in trace.events
+    }
+
+    assert 1319 in frame_sizes
+    assert 1317 in frame_sizes
+    assert 60 in frame_sizes
+    assert 454 in frame_sizes
+    assert 95 in frame_sizes
+    assert 198 in frame_sizes
+    assert 608 in frame_sizes
