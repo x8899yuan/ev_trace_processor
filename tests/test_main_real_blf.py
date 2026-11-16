@@ -1,116 +1,36 @@
+import argparse
 from pathlib import Path
 
-from main import main
+import pytest
+
+import main as main_module
 
 
-EVENT_REPORT_FILE = Path(
-    r"reports\charging\charging_event_report.txt"
-)
-
-EVENT_SUMMARY_FILE = Path(
-    r"reports\charging\charging_event_summary.txt"
-)
-
-REPORT_FILE = Path(
-    r"reports\charging\charging_diagnostic_report.txt"
-)
-
-SUMMARY_FILE = Path(
-    r"reports\charging\charging_case_summary.txt"
-)
+BLF_FILE = Path(r"data\blf\VW31666_0173_20260508_140000h_Trace.blf")
+SUMMARY_FILE = Path(r"reports\test_session_summary.txt")
+HTML_FILE = Path(r"reports\test_session_summary.html")
 
 
-def test_main_real_blf() -> None:
-    main()
+def test_main_real_session(monkeypatch) -> None:
+    if not BLF_FILE.exists():
+        pytest.skip(f"Local real-trace fixture is not available: {BLF_FILE}")
 
-    assert EVENT_REPORT_FILE.exists()
-    assert EVENT_SUMMARY_FILE.exists()
-    assert REPORT_FILE.exists()
+    monkeypatch.setattr(
+        main_module,
+        "parse_args",
+        lambda: argparse.Namespace(no_open=True),
+    )
+
+    result = main_module.main()
+
+    assert result == 0
     assert SUMMARY_FILE.exists()
+    assert HTML_FILE.exists()
 
-    event_report_content = (
-        EVENT_REPORT_FILE.read_text(
-            encoding="utf-8"
-        )
-    )
+    summary = SUMMARY_FILE.read_text(encoding="utf-8")
+    html = HTML_FILE.read_text(encoding="utf-8")
 
-    event_summary_content = (
-        EVENT_SUMMARY_FILE.read_text(
-            encoding="utf-8"
-        )
-    )
-
-    report_content = (
-        REPORT_FILE.read_text(
-            encoding="utf-8"
-        )
-    )
-
-    summary_content = (
-        SUMMARY_FILE.read_text(
-            encoding="utf-8"
-        )
-    )
-
-    print()
-    print("=" * 80)
-    print("EVENT REPORT")
-    print("=" * 80)
-    print()
-    print(event_report_content)
-
-    print()
-    print("=" * 80)
-    print("EVENT SUMMARY")
-    print("=" * 80)
-    print()
-    print(event_summary_content)
-
-    print()
-    print("=" * 80)
-    print("DIAGNOSTIC REPORT")
-    print("=" * 80)
-    print()
-    print(report_content)
-
-    print()
-    print("=" * 80)
-    print("CASE SUMMARY")
-    print("=" * 80)
-    print()
-    print(summary_content)
-
-    assert (
-        "CHARGING EVENT REPORT"
-        in event_report_content
-    )
-
-    assert (
-        "Charging Event Summary"
-        in event_summary_content
-    )
-
-    assert (
-        "CHARGING DIAGNOSTIC REPORT"
-        in report_content
-    )
-
-    assert (
-        "ENGINEERING CONCLUSION"
-        in report_content
-    )
-
-    assert (
-        "CHARGING CASE SUMMARY"
-        in summary_content
-    )
-
-    assert (
-        "ENGINEERING CONCLUSION"
-        in summary_content
-    )
-
-    assert (
-        "FINAL CONCLUSION"
-        in summary_content
-    )
+    assert "Vehicle Test Session Engineering Summary" in summary
+    assert "BLF: ANALYZED" in summary
+    assert "VIN: 1V2ZZZE81TC000011" in summary
+    assert "Vehicle Test Session Engineering Summary" in html

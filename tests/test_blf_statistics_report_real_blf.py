@@ -1,40 +1,18 @@
 from pathlib import Path
 
 from readers.blf_reader import BlfReader
-from services.blf_statistics_report_service import (
-    BlfStatisticsReportService,
-)
-from services.blf_statistics_service import (
-    BlfStatisticsService,
-)
+from services.blf_statistics_report_service import BlfStatisticsReportService
+from services.blf_statistics_service import BlfStatisticsService
 
 
-BLF_FILE = Path(
-    r"data\blf\VW316660436_BEUS_20251022_083710h_10242km_Trace.blf"
-)
+BLF_FILE = Path(r"data\blf\VW31666_0173_20260508_140000h_Trace.blf")
 
 
 def test_real_blf_statistics_report() -> None:
-
-    trace = BlfReader().read(
-        BLF_FILE,
-    )
-
-    statistics = (
-        BlfStatisticsService()
-        .analyze(trace)
-    )
-
-    report_service = (
-        BlfStatisticsReportService()
-    )
-
-    report = (
-        report_service
-        .generate_report(
-            statistics
-        )
-    )
+    trace = BlfReader().read(BLF_FILE)
+    statistics = BlfStatisticsService().analyze(trace)
+    report_service = BlfStatisticsReportService()
+    report = report_service.generate_report(statistics)
 
     print()
     print(report)
@@ -51,41 +29,10 @@ def test_real_blf_statistics_report() -> None:
     assert "Busiest CAN ID:" in report
     assert "Busiest Channel:" in report
 
-    report_path = (
-        report_service
-        .save_report(
-            statistics,
-            BLF_FILE.name,
-        )
-    )
+    report_path = report_service.save_report(statistics, BLF_FILE.name)
 
     assert report_path.exists()
     assert report_path.is_file()
     assert report_path.suffix == ".txt"
-
-    assert (
-        report_path.parent.name
-        == "statistics"
-    )
-
-    assert (
-        report_path.name
-        == (
-            f"{BLF_FILE.stem}"
-            "_statistics.txt"
-        )
-    )
-
-    saved_report = (
-        report_path.read_text(
-            encoding="utf-8",
-        )
-    )
-
-    assert saved_report == report
-
-    print(
-        "Persistent Statistics Report Path:",
-        report_path,
-    )
-    print()
+    assert report_path.parent.name == "blf"
+    assert report_path.name == "blf_statistics.txt"

@@ -28,6 +28,9 @@ build/
 dist/
 *.egg-info/
 
+# Local trace and test data
+data/
+
 # Generated reports
 reports/
 
@@ -46,16 +49,5 @@ reports/
 *.dbc
 *.DBC
 
-# Generated reports
-reports/
-
-# Python
-__pycache__/
-*.pyc
-.pytest_cache/
-
-# IDE
-.vscode/
-.idea/
-
+# Backup files
 *.old

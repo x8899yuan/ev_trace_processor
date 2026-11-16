@@ -1,148 +1,143 @@
+import argparse
 from pathlib import Path
 
 import main as main_module
 
 
-ANALYSIS_RESULTS = {
-    "decoded_messages": 3121,
-    "timeline_entries": 6,
-    "events_detected": 6,
-    "findings": ["Charging permission denied."],
-    "event_report": Path("reports/charging/charging_event_report.txt"),
-    "event_summary": Path("reports/charging/charging_event_summary.txt"),
-    "diagnostic_report": "CHARGING DIAGNOSTIC REPORT",
-    "case_summary": Path("reports/charging/charging_case_summary.txt"),
+PROCESS_RESULT = {
+    "processed_trace_types": ["blf", "pcap"],
+    "vehicle_identity": {
+        "vin": "1V2ZZZE81TC000011",
+        "source": "BLF / VIN_01",
+    },
+    "summary_path": Path("reports/test_session_summary.txt"),
+    "html_path": Path("reports/test_session_summary.html"),
 }
 
 
-class FakeChargingAnalysisService:
+class FakeSessionProcessorService:
     calls = []
+    result = PROCESS_RESULT
+    error = None
 
-    def analyze(self, blf_file, dbc_file):
-        self.__class__.calls.append(
-            {
-                "blf_file": blf_file,
-                "dbc_file": dbc_file,
-            }
-        )
-        return ANALYSIS_RESULTS.copy()
+    def __init__(self, handlers):
+        self.handlers = handlers
+
+    def process(self, discovered):
+        self.__class__.calls.append(discovered)
+        if self.__class__.error is not None:
+            raise self.__class__.error
+        return self.__class__.result
 
 
-def configure_main(monkeypatch, tmp_path):
-    blf_file = (
-        tmp_path
-        / "data"
-        / "blf"
-        / "VW316660436_BEUS_20251022_083710h_10242km_Trace.blf"
-    )
-    dbc_file = (
-        tmp_path
-        / "dbc"
-        / "E3_1_1_UNECE_E3V_EVCANFD_KMatrix_V15_20230303_BAm.dbc"
-    )
+class FakeSessionTraceHandlers:
+    def build(self):
+        return {"fake": object()}
 
+
+def configure_main(monkeypatch, tmp_path, *, no_open=True):
+    blf_file = tmp_path / "data" / "blf" / "vehicle.blf"
+    pcap_file = tmp_path / "data" / "pcap" / "capture.pcap"
+    ignored_file = tmp_path / "data" / "pcap" / "notes.txt"
     blf_file.parent.mkdir(parents=True)
-    dbc_file.parent.mkdir(parents=True)
+    pcap_file.parent.mkdir(parents=True)
     blf_file.write_bytes(b"")
-    dbc_file.write_bytes(b"")
+    pcap_file.write_bytes(b"")
+    ignored_file.write_text("ignore", encoding="utf-8")
 
-    FakeChargingAnalysisService.calls.clear()
+    FakeSessionProcessorService.calls.clear()
+    FakeSessionProcessorService.result = PROCESS_RESULT
+    FakeSessionProcessorService.error = None
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(main_module, "SessionProcessorService", FakeSessionProcessorService)
+    monkeypatch.setattr(main_module, "SessionTraceHandlers", FakeSessionTraceHandlers)
+    monkeypatch.setattr(
+        main_module,
+        "parse_args",
+        lambda: argparse.Namespace(no_open=no_open),
+    )
+    return blf_file, pcap_file
+
+
+def test_discover_traces_returns_supported_files(tmp_path, monkeypatch) -> None:
+    blf_file, pcap_file = configure_main(monkeypatch, tmp_path)
+
+    discovered = main_module.discover_traces()
+
+    assert discovered["blf"] == [Path("data/blf/vehicle.blf")]
+    assert discovered["pcap"] == [Path("data/pcap/capture.pcap")]
+    assert discovered["dlt"] == []
+    assert discovered["mf4"] == []
+    assert blf_file.exists()
+    assert pcap_file.exists()
+
+
+def test_main_processes_discovered_traces(tmp_path, monkeypatch, capsys) -> None:
+    configure_main(monkeypatch, tmp_path)
+
+    result = main_module.main()
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert len(FakeSessionProcessorService.calls) == 1
+    discovered = FakeSessionProcessorService.calls[0]
+    assert discovered["blf"] == [Path("data/blf/vehicle.blf")]
+    assert discovered["pcap"] == [Path("data/pcap/capture.pcap")]
+    assert "EV TRACE PROCESSOR" in captured.out
+    assert "PROCESSING COMPLETE" in captured.out
+    assert "Processed trace types: BLF, PCAP" in captured.out
+    assert "VIN: 1V2ZZZE81TC000011" in captured.out
+    assert "VIN evidence: BLF / VIN_01" in captured.out
+    assert "Session TXT:  reports\\test_session_summary.txt" in captured.out
+    assert "Session HTML: reports\\test_session_summary.html" in captured.out
+
+
+def test_main_no_open_does_not_launch_browser(tmp_path, monkeypatch) -> None:
+    configure_main(monkeypatch, tmp_path, no_open=True)
+    opened = []
+    monkeypatch.setattr(main_module.webbrowser, "open", opened.append)
+
+    assert main_module.main() == 0
+    assert opened == []
+
+
+def test_main_opens_session_html_by_default(tmp_path, monkeypatch, capsys) -> None:
+    configure_main(monkeypatch, tmp_path, no_open=False)
+    opened = []
+    monkeypatch.setattr(main_module.webbrowser, "open", opened.append)
+
+    assert main_module.main() == 0
+    captured = capsys.readouterr()
+
+    assert len(opened) == 1
+    assert opened[0].startswith("file:")
+    assert opened[0].endswith("/reports/test_session_summary.html")
+    assert "Opened session HTML in the default browser." in captured.out
+
+
+def test_main_reports_no_supported_traces(tmp_path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         main_module,
-        "ChargingAnalysisService",
-        FakeChargingAnalysisService,
+        "parse_args",
+        lambda: argparse.Namespace(no_open=True),
     )
-
-    return blf_file, dbc_file
-
-
-def test_main_runs_charging_analysis(tmp_path, monkeypatch, capsys) -> None:
-    blf_file, dbc_file = configure_main(monkeypatch, tmp_path)
 
     result = main_module.main()
     captured = capsys.readouterr()
 
-    assert result is None
-    assert len(FakeChargingAnalysisService.calls) == 1
-    assert FakeChargingAnalysisService.calls[0]["blf_file"] == Path(
-        r"data\blf\VW316660436_BEUS_20251022_083710h_10242km_Trace.blf"
-    )
-    assert FakeChargingAnalysisService.calls[0]["dbc_file"] == Path(
-        r"dbc\E3_1_1_UNECE_E3V_EVCANFD_KMatrix_V15_20230303_BAm.dbc"
-    )
-    assert blf_file.exists()
-    assert dbc_file.exists()
-    assert "EV TRACE PROCESSOR" in captured.out
-    assert "PROCESSING COMPLETE" in captured.out
+    assert result == 2
+    assert "No supported traces were provided." in captured.out
+    assert "Place at least one BLF, DLT, PCAP, or MF4 trace" in captured.out
 
 
-def test_main_reports_analysis_results(tmp_path, monkeypatch, capsys) -> None:
+def test_main_reports_processing_failure(tmp_path, monkeypatch, capsys) -> None:
     configure_main(monkeypatch, tmp_path)
-
-    main_module.main()
-    captured = capsys.readouterr()
-
-    assert "ANALYSIS RESULTS" in captured.out
-    assert "Decoded Messages: 3121" in captured.out
-    assert "Timeline Entries: 6" in captured.out
-    assert "Events Detected: 6" in captured.out
-
-
-def test_main_reports_findings(tmp_path, monkeypatch, capsys) -> None:
-    configure_main(monkeypatch, tmp_path)
-
-    main_module.main()
-    captured = capsys.readouterr()
-
-    assert "ROOT CAUSE FINDINGS" in captured.out
-    assert "- Charging permission denied." in captured.out
-
-
-def test_main_reports_generated_reports(tmp_path, monkeypatch, capsys) -> None:
-    configure_main(monkeypatch, tmp_path)
-
-    main_module.main()
-    captured = capsys.readouterr()
-
-    assert "GENERATED REPORTS" in captured.out
-    assert "Event Report: reports\\charging\\charging_event_report.txt" in captured.out
-    assert "Event Summary: reports\\charging\\charging_event_summary.txt" in captured.out
-    assert "Diagnostic Report: CHARGING DIAGNOSTIC REPORT" in captured.out
-    assert "Case Summary: reports\\charging\\charging_case_summary.txt" in captured.out
-
-
-def test_main_reports_missing_blf(tmp_path, monkeypatch, capsys) -> None:
-    monkeypatch.chdir(tmp_path)
+    FakeSessionProcessorService.error = RuntimeError("synthetic failure")
 
     result = main_module.main()
     captured = capsys.readouterr()
 
-    assert result is None
-    assert (
-        "BLF file not found: "
-        "data\\blf\\VW316660436_BEUS_20251022_083710h_10242km_Trace.blf"
-        in captured.out
-    )
-
-
-def test_main_reports_missing_dbc(tmp_path, monkeypatch, capsys) -> None:
-    blf_file = (
-        tmp_path
-        / "data"
-        / "blf"
-        / "VW316660436_BEUS_20251022_083710h_10242km_Trace.blf"
-    )
-    blf_file.parent.mkdir(parents=True)
-    blf_file.write_bytes(b"")
-    monkeypatch.chdir(tmp_path)
-
-    result = main_module.main()
-    captured = capsys.readouterr()
-
-    assert result is None
-    assert (
-        "DBC file not found: "
-        "dbc\\E3_1_1_UNECE_E3V_EVCANFD_KMatrix_V15_20230303_BAm.dbc"
-        in captured.out
-    )
+    assert result == 1
+    assert "PROCESSING FAILED" in captured.out
+    assert "RuntimeError: synthetic failure" in captured.out

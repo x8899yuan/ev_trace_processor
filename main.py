@@ -1,100 +1,106 @@
+import argparse
+import webbrowser
 from pathlib import Path
 
-from services.charging_analysis_service import (
-    ChargingAnalysisService,
-)
+from services.session_processor_service import SessionProcessorService
+from services.session_trace_handlers import SessionTraceHandlers
 
 
-def main() -> None:
+SUPPORTED = {
+    "blf": (Path("data/blf"), {".blf"}),
+    "dlt": (Path("data/dlt"), {".dlt"}),
+    "pcap": (Path("data/pcap"), {".pcap", ".pcapng"}),
+    "mf4": (Path("data/MF4"), {".mf4"}),
+}
+
+
+def discover_traces() -> dict[str, list[Path]]:
+    discovered = {}
+    for trace_type, (directory, suffixes) in SUPPORTED.items():
+        if not directory.exists():
+            discovered[trace_type] = []
+            continue
+        discovered[trace_type] = sorted(
+            {
+                path
+                for path in directory.iterdir()
+                if path.is_file() and path.suffix.lower() in suffixes
+            }
+        )
+    return discovered
+
+
+def print_discovery(discovered: dict[str, list[Path]]) -> None:
+    print("DISCOVERED TRACES")
+    print("=" * 80)
+    for trace_type in ("blf", "dlt", "pcap", "mf4"):
+        files = discovered[trace_type]
+        if not files:
+            continue
+        print(f"{trace_type.upper()}: {len(files)}")
+        for path in files:
+            print(f"  {path}")
+    print()
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="EV trace processor")
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Generate reports without opening the session HTML report.",
+    )
+    return parser.parse_args()
+
+
+def main() -> int:
+    args = parse_args()
+
     print("=" * 80)
     print("EV TRACE PROCESSOR")
     print("=" * 80)
     print()
 
-    blf_file = Path(
-        r"data\blf\VW316660436_BEUS_20251022_083710h_10242km_Trace.blf"
-    )
+    discovered = discover_traces()
+    if not any(discovered.values()):
+        print("No supported traces were provided.")
+        print("Place at least one BLF, DLT, PCAP, or MF4 trace in its data directory.")
+        return 2
 
-    dbc_file = Path(
-        r"dbc\E3_1_1_UNECE_E3V_EVCANFD_KMatrix_V15_20230303_BAm.dbc"
-    )
-
-    if not blf_file.exists():
-        print(
-            f"BLF file not found: {blf_file}"
-        )
-        return
-
-    if not dbc_file.exists():
-        print(
-            f"DBC file not found: {dbc_file}"
-        )
-        return
-
-    analysis_service = (
-        ChargingAnalysisService()
-    )
-
-    results = (
-        analysis_service.analyze(
-            blf_file=blf_file,
-            dbc_file=dbc_file,
-        )
-    )
-
-    print("ANALYSIS RESULTS")
-    print("=" * 80)
-
-    print(
-        f"Decoded Messages: "
-        f"{results['decoded_messages']}"
-    )
-
-    print(
-        f"Timeline Entries: "
-        f"{results['timeline_entries']}"
-    )
-
-    print(
-        f"Events Detected: "
-        f"{results['events_detected']}"
-    )
-
+    print_discovery(discovered)
+    print("Session-association assumption:")
+    print("Input traces are treated as belonging to the same vehicle and testing session.")
+    print("The user is responsible for supplying a coherent trace set.")
     print()
 
-    print("ROOT CAUSE FINDINGS")
-    print("=" * 80)
+    try:
+        processor = SessionProcessorService(
+            handlers=SessionTraceHandlers().build(),
+        )
+        result = processor.process(discovered)
+    except Exception as exc:
+        print("PROCESSING FAILED")
+        print("=" * 80)
+        print(f"{type(exc).__name__}: {exc}")
+        return 1
 
-    for finding in results["findings"]:
-        print(f"- {finding}")
-
-    print()
-    print("GENERATED REPORTS")
-    print("=" * 80)
-
-    print(
-        f"Event Report: "
-        f"{results['event_report']}"
-    )
-
-    print(
-        f"Event Summary: "
-        f"{results['event_summary']}"
-    )
-
-    print(
-        f"Diagnostic Report: "
-        f"{results['diagnostic_report']}"
-    )
-
-    print(
-        f"Case Summary: "
-        f"{results['case_summary']}"
-    )
-
-    print()
     print("PROCESSING COMPLETE")
+    print("=" * 80)
+    print("Processed trace types: " + ", ".join(value.upper() for value in result["processed_trace_types"]))
+    identity = result.get("vehicle_identity")
+    if identity and identity.get("vin"):
+        print(f"VIN: {identity['vin']}")
+        print(f"VIN evidence: {identity.get('source', 'BLF')}")
+    print(f"Session TXT:  {result['summary_path']}")
+    print(f"Session HTML: {result['html_path']}")
+
+    html_path = Path(result["html_path"]).resolve()
+    if not args.no_open:
+        webbrowser.open(html_path.as_uri())
+        print("Opened session HTML in the default browser.")
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

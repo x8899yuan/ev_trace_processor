@@ -83,3 +83,29 @@ class DbcDecoderService:
             return message.name
         except KeyError:
             return None
+
+    def message_senders(
+        self,
+        dbc_file: Path,
+        arbitration_id: int,
+    ) -> list[str]:
+        database = self._get_database(dbc_file)
+
+        try:
+            message = database.get_message_by_frame_id(arbitration_id)
+            return list(message.senders)
+        except KeyError:
+            return []
+
+    def message_signal_names(
+        self,
+        dbc_file: Path,
+        arbitration_id: int,
+    ) -> list[str]:
+        database = self._get_database(dbc_file)
+
+        try:
+            message = database.get_message_by_frame_id(arbitration_id)
+            return [signal.name for signal in message.signals]
+        except KeyError:
+            return []

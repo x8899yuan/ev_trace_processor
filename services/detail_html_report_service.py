@@ -1,0 +1,121 @@
+from html import escape
+from pathlib import Path
+
+from services.html_report_renderer import HtmlReportRenderer
+from services.engineering_value_formatter import EngineeringValueFormatter
+
+
+class DetailHtmlReportService:
+    def __init__(self, renderer: HtmlReportRenderer | None = None) -> None:
+        self._renderer = renderer if renderer is not None else HtmlReportRenderer()
+
+    def generate_all(self, reports_root: Path = Path("reports")) -> list[Path]:
+        root = Path(reports_root)
+        outputs = []
+        for txt_path in sorted(root.rglob("*.txt")):
+            if txt_path.parent == root and txt_path.name == "test_session_summary.txt":
+                continue
+            outputs.append(self.generate_one(txt_path, txt_path.with_suffix(".html"), root))
+        return outputs
+
+    def generate_one(self, txt_path: Path, html_path: Path, reports_root: Path) -> Path:
+        txt_path = Path(txt_path)
+        html_path = Path(html_path)
+        root = Path(reports_root).resolve()
+        text = EngineeringValueFormatter().format_text(txt_path.read_text(encoding="utf-8", errors="replace"))
+        title, blocks = self._parse(text, txt_path)
+        back_link = self._back_link(html_path.resolve(), root)
+        html = self._document(title, txt_path.name, blocks, back_link)
+        return self._renderer.write_page(html_path, html)
+
+    def _parse(self, text: str, path: Path) -> tuple[str, list[dict]]:
+        lines = text.splitlines()
+        title = next((line.strip() for line in lines if line.strip()), path.stem.replace("_", " ").title())
+        blocks = []
+        current = {"title": "Overview", "lines": []}
+        index = 1
+        while index < len(lines):
+            line = lines[index].rstrip()
+            value = line.strip()
+            next_value = lines[index + 1].strip() if index + 1 < len(lines) else ""
+            if value and next_value and set(next_value) == {"-"}:
+                if current["lines"]:
+                    blocks.append(current)
+                current = {"title": value, "lines": []}
+                index += 2
+                continue
+            if value and set(value) not in ({"="}, {"-"}):
+                current["lines"].append(value)
+            index += 1
+        if current["lines"]:
+            blocks.append(current)
+        return title, blocks
+
+    def _document(self, title: str, filename: str, blocks: list[dict], back_link: str) -> str:
+        sections = "".join(self._section(block) for block in blocks)
+        return f'''<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(title)}</title>
+<style>
+:root {{ color-scheme:light dark; --bg:#f4f7fb; --panel:#fff; --text:#172033; --muted:#64748b; --border:#d8e1ec; --accent:#0b5cab; --row:#f8fafc; }}
+@media (prefers-color-scheme:dark) {{ :root {{ --bg:#111722; --panel:#1a2230; --text:#eef3fa; --muted:#aab6c6; --border:#344154; --accent:#79b8ff; --row:#151d29; }} }}
+* {{ box-sizing:border-box; }}
+body {{ margin:0; background:var(--bg); color:var(--text); font:15px/1.55 "Segoe UI",Arial,sans-serif; }}
+main {{ max-width:1120px; margin:auto; padding:28px 18px 64px; }}
+a {{ color:var(--accent); }}
+.back {{ display:inline-block; margin-bottom:14px; text-decoration:none; font-weight:600; }}
+h1 {{ margin:0; font-size:30px; }}
+.source {{ margin:5px 0 24px; color:var(--muted); }}
+section {{ background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:18px 20px; margin:14px 0; }}
+h2 {{ margin:0 0 14px; font-size:19px; }}
+dl {{ display:grid; grid-template-columns:minmax(220px,35%) 1fr; gap:0; margin:0; border-top:1px solid var(--border); }}
+dt,dd {{ padding:9px 10px; border-bottom:1px solid var(--border); overflow-wrap:anywhere; }}
+dt {{ margin:0; color:var(--muted); font-weight:600; background:var(--row); }}
+dd {{ margin:0; }}
+ul {{ margin:4px 0 0; padding-left:24px; }}
+li {{ margin:6px 0; overflow-wrap:anywhere; }}
+.note {{ white-space:pre-wrap; overflow-wrap:anywhere; margin:8px 0; }}
+@media (max-width:650px) {{ dl {{ grid-template-columns:1fr; }} dt {{ border-bottom:0; }} main {{ padding:18px 10px 40px; }} }}
+</style>
+</head>
+<body><main>
+<a class="back" href="{escape(back_link, quote=True)}">&larr; Back to Test Session Summary</a>
+<h1>{escape(title)}</h1>
+<p class="source">Detailed report: {escape(filename)}</p>
+{sections}
+</main></body>
+</html>'''
+
+    def _section(self, block: dict) -> str:
+        rows = []
+        notes = []
+        for line in block["lines"]:
+            if ": " in line:
+                key, value = line.split(": ", 1)
+                rows.append((key, value))
+            else:
+                notes.append(line)
+        content = []
+        if rows:
+            content.append("<dl>")
+            for key, value in rows:
+                content.append(f"<dt>{escape(key)}</dt><dd>{escape(value)}</dd>")
+            content.append("</dl>")
+        if notes:
+            if len(notes) > 1:
+                content.append("<ul>")
+                content.extend(f"<li>{escape(line)}</li>" for line in notes)
+                content.append("</ul>")
+            else:
+                content.append(f'<p class="note">{escape(notes[0])}</p>')
+        if not content:
+            content.append('<p class="note">No additional content.</p>')
+        return f'<section><h2>{escape(block["title"])}</h2>{"".join(content)}</section>'
+
+    def _back_link(self, html_path: Path, root: Path) -> str:
+        relative = html_path.relative_to(root)
+        depth = len(relative.parents) - 1
+        return (Path(*([".."] * depth)) / "test_session_summary.html").as_posix()
