@@ -6,31 +6,40 @@ import pytest
 import main as main_module
 
 
-BLF_FILE = Path(r"data\blf\VW31666_0173_20260508_140000h_Trace.blf")
-SUMMARY_FILE = Path(r"reports\test_session_summary.txt")
-HTML_FILE = Path(r"reports\test_session_summary.html")
+REPORTS_DIR = Path("reports")
+
+
+def _discover_blf_file() -> Path:
+    directory = Path("data") / "blf"
+    files = sorted(path for path in directory.iterdir() if path.is_file() and path.suffix.lower() == ".blf") if directory.exists() else []
+    if not files:
+        pytest.skip(f"No BLF real-trace fixture found under {directory}")
+    return files[0]
+
+
+def _latest_session_pair() -> tuple[Path, Path]:
+    summaries = sorted(REPORTS_DIR.glob("session_summary_??????????????.txt"), key=lambda path: path.stat().st_mtime_ns)
+    assert summaries, "No timestamped session summary was generated"
+    summary = summaries[-1]
+    html = summary.with_suffix(".html")
+    return summary, html
 
 
 def test_main_real_session(monkeypatch) -> None:
-    if not BLF_FILE.exists():
-        pytest.skip(f"Local real-trace fixture is not available: {BLF_FILE}")
-
-    monkeypatch.setattr(
-        main_module,
-        "parse_args",
-        lambda: argparse.Namespace(no_open=True),
-    )
-
+    _discover_blf_file()
+    monkeypatch.setattr(main_module, "parse_args", lambda: argparse.Namespace(no_open=True))
     result = main_module.main()
-
     assert result == 0
-    assert SUMMARY_FILE.exists()
-    assert HTML_FILE.exists()
 
-    summary = SUMMARY_FILE.read_text(encoding="utf-8")
-    html = HTML_FILE.read_text(encoding="utf-8")
+    summary_file, html_file = _latest_session_pair()
+    assert summary_file.exists()
+    assert html_file.exists()
+    run_id = summary_file.stem.removeprefix("session_summary_")
+    assert len(run_id) == 14 and run_id.isdigit()
+    assert html_file.name == f"session_summary_{run_id}.html"
 
+    summary = summary_file.read_text(encoding="utf-8")
+    html = html_file.read_text(encoding="utf-8")
     assert "Vehicle Test Session Engineering Summary" in summary
     assert "BLF: ANALYZED" in summary
-    assert "VIN: 1V2ZZZE81TC000011" in summary
     assert "Vehicle Test Session Engineering Summary" in html

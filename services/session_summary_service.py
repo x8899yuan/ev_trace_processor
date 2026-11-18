@@ -6,12 +6,12 @@ class TestSessionSummaryService:
     TRACE_ORDER = ("blf", "dlt", "pcap", "mf4")
     TRACE_LABELS = {"blf": "BLF", "dlt": "DLT", "pcap": "PCAP", "mf4": "MF4"}
 
-    def save_summary(self, *, vehicle_identity=None, blf=None, dlt=None, pcap=None, mf4=None) -> Path:
+    def save_summary(self, *, vehicle_identity=None, blf=None, dlt=None, pcap=None, mf4=None, run_id: str | None = None) -> Path:
         traces = self._validated_traces(blf=blf, dlt=dlt, pcap=pcap, mf4=mf4)
-        output = self._output_path()
+        output = self._output_path(run_id)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(self.generate_summary(vehicle_identity=vehicle_identity, **traces), encoding="utf-8")
-        return output
+        return output.resolve()
 
     def generate_summary(self, *, vehicle_identity=None, blf=None, dlt=None, pcap=None, mf4=None) -> str:
         traces = self._validated_traces(blf=blf, dlt=dlt, pcap=pcap, mf4=mf4)
@@ -63,6 +63,10 @@ class TestSessionSummaryService:
             self._append_values(lines, result.get("fault_findings"))
         elif key == "dlt":
             self._append_values(lines, result.get("fault_findings"))
+            category_counts = result.get("finding_category_counts") or {}
+            for category in ("critical", "error", "warning", "keyword_observation"):
+                if category in category_counts:
+                    lines.append(f"{category.upper()} findings: {category_counts[category]}")
             if result.get("severity_counts"):
                 lines.append("Severity counts: " + ", ".join(f"{name}={count}" for name, count in result["severity_counts"].items()))
         elif key == "pcap":
@@ -120,5 +124,6 @@ class TestSessionSummaryService:
             return ", ".join(Path(str(value)).name for value in sources)
         return "source not supplied"
 
-    def _output_path(self) -> Path:
-        return Path(__file__).resolve().parent.parent / "reports" / "test_session_summary.txt"
+    def _output_path(self, run_id: str | None = None) -> Path:
+        name = f"session_summary_{run_id}.txt" if run_id else "session_summary.txt"
+        return Path(__file__).resolve().parent.parent / "reports" / name

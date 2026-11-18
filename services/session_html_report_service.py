@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from services.html_report_renderer import HtmlReportRenderer
 from services.engineering_value_formatter import EngineeringValueFormatter
+from services.html_report_renderer import HtmlReportRenderer
 
 
 class TestSessionHtmlReportService:
@@ -12,8 +12,8 @@ class TestSessionHtmlReportService:
     def __init__(self, renderer: HtmlReportRenderer | None = None) -> None:
         self._renderer = renderer if renderer is not None else HtmlReportRenderer()
 
-    def save_report(self, session: dict, manifest: dict) -> Path:
-        output = self._output_path()
+    def save_report(self, session: dict, manifest: dict, run_id: str | None = None) -> Path:
+        output = self._output_path(run_id)
         return self._renderer.write_page(output, self.generate_report(session, manifest))
 
     def generate_report(self, session: dict, manifest: dict) -> str:
@@ -33,10 +33,7 @@ class TestSessionHtmlReportService:
             })
         sections.append({
             "title": "Trace Coverage",
-            "rows": [
-                {"label": self.TRACE_LABELS[key], "value": "ANALYZED"}
-                for key in self.TRACE_ORDER if traces[key]
-            ],
+            "rows": [{"label": self.TRACE_LABELS[key], "value": "ANALYZED"} for key in self.TRACE_ORDER if traces[key]],
         })
         for key in self.TRACE_ORDER:
             if traces[key]:
@@ -72,13 +69,7 @@ class TestSessionHtmlReportService:
             source_text = "Source: " + ", ".join(Path(str(value)).name for value in source_files)
         else:
             source_text = f"Source: {self._source_name(result)}"
-        section = {
-            "title": self.TRACE_LABELS[key],
-            "text": source_text,
-            "rows": [],
-            "items": [],
-            "links": [],
-        }
+        section = {"title": self.TRACE_LABELS[key], "text": source_text, "rows": [], "items": [], "links": []}
         if key in {"blf", "mf4"}:
             for field, label in (
                 ("charging_progression", "Charging progression"),
@@ -107,11 +98,7 @@ class TestSessionHtmlReportService:
                 section["rows"].append({"label": "ISO 15118 / TLS", "value": tls.get("status", "INDETERMINATE")})
                 if tls.get("tls_version"):
                     section["rows"].append({"label": "TLS version", "value": tls["tls_version"]})
-            section["links"] = self._renderer.build_manifest_links(
-                manifest_entry.get("reports", [])
-            )
-        else:
-            section["links"] = self._renderer.build_manifest_links(manifest_entry.get("reports", []))
+        section["links"] = self._renderer.build_manifest_links(manifest_entry.get("reports", []))
         if key == "mf4" and "cp_fault_observed" in result:
             section["rows"].append({"label": "Explicit CP fault observed", "value": "YES" if result["cp_fault_observed"] else "NO"})
         return section
@@ -132,5 +119,6 @@ class TestSessionHtmlReportService:
             return ", ".join(Path(str(value)).name for value in sources)
         return "source not supplied"
 
-    def _output_path(self):
-        return Path(__file__).resolve().parent.parent / "reports" / "test_session_summary.html"
+    def _output_path(self, run_id: str | None = None):
+        name = f"session_summary_{run_id}.html" if run_id else "session_summary.html"
+        return Path(__file__).resolve().parent.parent / "reports" / name

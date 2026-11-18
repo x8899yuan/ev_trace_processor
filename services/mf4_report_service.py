@@ -1,7 +1,12 @@
 from pathlib import Path
 
+from services.engineering_value_formatter import EngineeringValueFormatter
+
 
 class Mf4ReportService:
+    def __init__(self):
+        self._value_formatter = EngineeringValueFormatter()
+
     def save_report(self, analysis: dict) -> Path:
         output_dir = self._output_dir()
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -69,45 +74,35 @@ class Mf4ReportService:
         self._append_state(lines, findings, "active_charge_type", "Active charging mode")
         self._append_state(lines, findings, "bms_charging_active", "BMS charging state")
 
+    def _format_value(self, value):
+        return self._value_formatter.format_value(value)
+
     def _append_state(self, lines, findings, key, label):
         entry = findings.get(key)
         if not entry:
             lines.append(f"{label}: NOT OBSERVED")
             return
-        values = ", ".join(entry.get("unique_values", [])) or "NO VALUE"
+        values = ", ".join(self._format_value(value) for value in entry.get("unique_values", [])) or "NO VALUE"
         lines.append(f"{label}: {values}")
 
     def _append_evidence(self, lines, findings):
         ordered_keys = (
-            "connector_a",
-            "connector_b",
-            "connector_sensor",
-            "dc_plug_status",
-            "cp_state_a",
-            "cp_state_b",
-            "cp_status_a",
-            "cp_fault_a",
-            "cp_fault_b",
-            "cp_frequency_a",
-            "cp_duty_a",
-            "cp_max_current_a",
-            "cp_max_current_b",
-            "vehicle_charge_capable",
-            "vehicle_ready_cdo",
-            "vehicle_ready_cj",
-            "vehicle_ready_plc",
-            "charge_request",
-            "active_charge_type",
-            "bms_charging_active",
+            "connector_a", "connector_b", "connector_sensor", "dc_plug_status",
+            "cp_state_a", "cp_state_b", "cp_status_a", "cp_fault_a", "cp_fault_b",
+            "cp_frequency_a", "cp_duty_a", "cp_max_current_a", "cp_max_current_b",
+            "vehicle_charge_capable", "vehicle_ready_cdo", "vehicle_ready_cj",
+            "vehicle_ready_plc", "charge_request", "active_charge_type", "bms_charging_active",
         )
         for key in ordered_keys:
             entry = findings.get(key)
             if not entry:
                 continue
+            first_value = self._format_value(entry["first_value"])
+            last_value = self._format_value(entry["last_value"])
             lines.append(
                 f"{entry['name']} | group={entry['group']} | index={entry['index']} | "
                 f"samples={entry['samples']} | transitions={entry['transitions']} | "
-                f"first={entry['first_value']} | last={entry['last_value']}"
+                f"first={first_value} | last={last_value}"
             )
 
     def _append_duplicates(self, lines, duplicates):
@@ -117,18 +112,14 @@ class Mf4ReportService:
         for name, entries in sorted(duplicates.items()):
             lines.append(f"{name}: {len(entries)} occurrences retained")
             for entry in entries:
-                values = ", ".join(entry.get("unique_values", [])) or "NO VALUE"
+                values = ", ".join(self._format_value(value) for value in entry.get("unique_values", [])) or "NO VALUE"
                 lines.append(
                     f"  group={entry['group']}, index={entry['index']}, "
                     f"samples={entry['samples']}, values={values}"
                 )
 
     def _append_timestamp_quality(self, lines, findings):
-        affected = [
-            entry
-            for entry in findings.values()
-            if entry.get("invalid_timestamp_count", 0) > 0
-        ]
+        affected = [entry for entry in findings.values() if entry.get("invalid_timestamp_count", 0) > 0]
         lines.append(f"Selected channels with filtered invalid timestamps: {len(affected)}")
         for entry in affected:
             lines.append(

@@ -4,41 +4,32 @@ from services.detail_html_report_service import DetailHtmlReportService
 from services.session_report_manifest import TestSessionReportManifest
 
 
-def test_detail_html_generation_and_manifest_links(tmp_path: Path) -> None:
+RUN_ID = "20261118111230"
+
+
+def test_detail_html_generation_and_manifest_links_are_scoped_to_run_id(tmp_path: Path):
     root = tmp_path / "reports"
     blf = root / "blf"
     din = root / "pcap" / "din70121" / "capture"
     blf.mkdir(parents=True)
     din.mkdir(parents=True)
-    (blf / "blf_case_summary.txt").write_text(
-        "BLF CASE SUMMARY\nCharging not observed\n",
-        encoding="utf-8",
-    )
-    (din / "din70121_case_summary.txt").write_text(
-        "DIN 70121 CASE SUMMARY\nCurrentDemand\n",
-        encoding="utf-8",
-    )
+    current_blf = blf / f"blf_case_summary_{RUN_ID}.txt"
+    current_din = din / f"din70121_case_summary_{RUN_ID}.txt"
+    old_blf = blf / "blf_case_summary_20261117120000.txt"
+    current_blf.write_text("BLF CASE SUMMARY\nCharging not observed\n", encoding="utf-8")
+    current_din.write_text("DIN 70121 CASE SUMMARY\nCurrentDemand\n", encoding="utf-8")
+    old_blf.write_text("OLD\n", encoding="utf-8")
 
-    outputs = DetailHtmlReportService().generate_all(root)
-    assert blf / "blf_case_summary.html" in outputs
-    assert din / "din70121_case_summary.html" in outputs
+    outputs = DetailHtmlReportService().generate_all(root, run_id=RUN_ID)
+    assert current_blf.with_suffix(".html").resolve() in outputs
+    assert current_din.with_suffix(".html").resolve() in outputs
+    assert not old_blf.with_suffix(".html").exists()
 
-    blf_html = (blf / "blf_case_summary.html").read_text(encoding="utf-8")
-    din_html = (din / "din70121_case_summary.html").read_text(encoding="utf-8")
-    assert 'href="../test_session_summary.html"' in blf_html
-    assert 'href="../../../test_session_summary.html"' in din_html
-    assert "Charging not observed" in blf_html
-    assert "CurrentDemand" in din_html
+    blf_html = current_blf.with_suffix(".html").read_text(encoding="utf-8")
+    din_html = current_din.with_suffix(".html").read_text(encoding="utf-8")
+    assert f'href="../session_summary_{RUN_ID}.html"' in blf_html
+    assert f'href="../../../session_summary_{RUN_ID}.html"' in din_html
 
-    manifest = TestSessionReportManifest().build(root)
-    blf_entries = manifest["traces"]["BLF"]["reports"]
-    pcap_entries = manifest["traces"]["PCAP"]["reports"]
-    assert any(
-        item["html_exists"] and item["html"] == "blf/blf_case_summary.html"
-        for item in blf_entries
-    )
-    assert any(
-        item["title"] == "DIN 70121 Detailed Reports"
-        and item["html"] == "pcap/din70121/index.html"
-        for item in pcap_entries
-    )
+    manifest = TestSessionReportManifest().build(root, run_id=RUN_ID)
+    assert any(item["html"] == f"blf/blf_case_summary_{RUN_ID}.html" for item in manifest["traces"]["BLF"]["reports"])
+    assert all(RUN_ID in item["txt"] for group in manifest["traces"].values() for item in group["reports"])

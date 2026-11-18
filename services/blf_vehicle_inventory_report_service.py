@@ -3,7 +3,6 @@ from services.engineering_value_formatter import EngineeringValueFormatter
 
 
 class BlfVehicleInventoryReportService:
-
     def save_report(
         self,
         inventory,
@@ -18,7 +17,7 @@ class BlfVehicleInventoryReportService:
         output_dir.mkdir(parents=True, exist_ok=True)
         analysis_path = output_dir / "blf_analysis_report.txt"
         summary_path = output_dir / "blf_case_summary.txt"
-        report = self._generate_report(
+        analysis_report = self._generate_report(
             inventory,
             file_stem,
             blf_inventory,
@@ -27,12 +26,35 @@ class BlfVehicleInventoryReportService:
             anomaly_analysis,
             charging_fault_correlation,
         )
-        analysis_path.write_text(report, encoding="utf-8")
-        summary_path.write_text(report, encoding="utf-8")
+        case_summary = self._generate_case_summary(
+            inventory,
+            file_stem,
+            charging_analysis,
+            anomaly_analysis,
+            charging_fault_correlation,
+        )
+        analysis_path.write_text(analysis_report, encoding="utf-8")
+        summary_path.write_text(case_summary, encoding="utf-8")
         return analysis_path
 
     def _output_dir(self) -> Path:
         return Path(__file__).resolve().parent.parent / "reports" / "blf"
+
+    def _generate_case_summary(self, inventory, file_stem: str, charging_analysis: dict | None, anomaly_analysis: dict | None, charging_fault_correlation: dict | None) -> str:
+        lines = ["BLF CASE SUMMARY", "=" * 80, "", f"VIN: {self._vin(inventory)}", f"VIN Status: {self._vin_status(inventory)}", "VIN Source: VIN_01 CAN/DBC evidence reconstructed from the BLF trace.", f"BLF Source: {Path(file_stem).name}", "", "Overall Engineering Assessment", "-" * 80]
+        self._append_overall(lines, charging_analysis, anomaly_analysis)
+        self._append_primary_fault_summary(lines, anomaly_analysis)
+        lines.extend(["", "Charging Assessment", "-" * 80])
+        self._append_interpretation(lines, charging_analysis)
+        lines.extend(["", "Charging Prerequisite Assessment", "-" * 80])
+        self._append_charging_prerequisites(lines, charging_analysis)
+        lines.extend(["", "Charging-to-Fault Correlation", "-" * 80])
+        self._append_correlation(lines, charging_fault_correlation)
+        lines.extend(["", "Vehicle / ECU Inventory", "-" * 80])
+        self._append_inventory(lines, inventory)
+        lines.extend(["", "Analysis Limitations", "-" * 80])
+        self._append_limitations(lines, charging_analysis, anomaly_analysis, charging_fault_correlation)
+        return "\n".join(lines) + "\n"
 
     def _generate_report(self, inventory, file_stem: str, blf_inventory, statistics, charging_analysis: dict | None, anomaly_analysis: dict | None, charging_fault_correlation: dict | None) -> str:
         lines = ["BLF Engineering Analysis", "=" * 80, "", f"VIN: {self._vin(inventory)}", f"VIN Status: {self._vin_status(inventory)}", "VIN Source: VIN_01 CAN/DBC evidence reconstructed from the BLF trace.", f"BLF Source: {Path(file_stem).name}", "", "Overall Engineering Assessment", "-" * 80]
@@ -77,16 +99,14 @@ class BlfVehicleInventoryReportService:
         summary = anomaly_analysis.get("primary_fault_summary")
         if not summary:
             return
-        lines.extend(
-            [
-                f"Primary fault signal: {summary['signal_name']}",
-                f"Observed fault value: {summary['fault_value']}",
-                f"Fault intervals: {summary['fault_intervals']}",
-                f"Recovered intervals: {summary['recoveries']}",
-                f"Active at trace end: {'YES' if summary['active_at_trace_end'] else 'NO'}",
-                f"Charging causal status: {summary['charging_causal_status']}",
-            ]
-        )
+        lines.extend([
+            f"Primary fault signal: {summary['signal_name']}",
+            f"Observed fault value: {summary['fault_value']}",
+            f"Fault intervals: {summary['fault_intervals']}",
+            f"Recovered intervals: {summary['recoveries']}",
+            f"Active at trace end: {'YES' if summary['active_at_trace_end'] else 'NO'}",
+            f"Charging causal status: {summary['charging_causal_status']}",
+        ])
 
     def _append_charging(self, lines, charging_analysis):
         if not charging_analysis:
