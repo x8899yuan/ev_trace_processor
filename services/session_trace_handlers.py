@@ -250,10 +250,17 @@ class SessionTraceHandlers:
             for key in ("HVLM_CP_State_A", "HVLM_CP_State_B")
             if key in values
         }
+        non_established_states = {
+            "A",
+            "Init",
+            "kein_Zustand_erkannt",
+        }
         if status == "CP_nicht_erkannt":
             return "NOT_ESTABLISHED"
+        if states and states.issubset(non_established_states):
+            return "NOT_ESTABLISHED"
         if frequency == "keine_Frequenz_erkannt" and states and states.issubset(
-            {"A", "Init", "kein_Zustand_erkannt"}
+            non_established_states
         ):
             return "NOT_ESTABLISHED"
         readiness = {

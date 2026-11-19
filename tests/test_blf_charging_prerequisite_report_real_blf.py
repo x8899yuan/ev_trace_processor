@@ -1,13 +1,19 @@
 from pathlib import Path
 
 
-REPORT_FILE = Path(r"reports\blf\blf_case_summary.txt")
+REPORT_DIR = Path(r"reports\blf")
+REPORT_PATTERN = "blf_case_summary_*.txt"
+
+
+def _latest_report() -> Path:
+    reports = list(REPORT_DIR.glob(REPORT_PATTERN))
+    assert reports, f"No timestamped BLF case summary found: {REPORT_DIR / REPORT_PATTERN}"
+    return max(reports, key=lambda path: path.stat().st_mtime)
 
 
 def test_blf_case_summary_contains_charging_prerequisite_assessment() -> None:
-    assert REPORT_FILE.exists(), f"Report file not found: {REPORT_FILE}"
-
-    report = REPORT_FILE.read_text(encoding="utf-8")
+    report_file = _latest_report()
+    report = report_file.read_text(encoding="utf-8")
 
     expected = [
         "Charging Prerequisite Assessment",

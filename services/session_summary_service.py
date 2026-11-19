@@ -62,8 +62,17 @@ class TestSessionSummaryService:
         if key == "blf":
             self._append_values(lines, result.get("fault_findings"))
         elif key == "dlt":
-            self._append_values(lines, result.get("fault_findings"))
             category_counts = result.get("finding_category_counts") or {}
+            aggregate_findings = {
+                f"{category.upper()} findings: {count}"
+                for category, count in category_counts.items()
+            }
+            descriptive_findings = [
+                str(finding)
+                for finding in result.get("fault_findings") or []
+                if str(finding) not in aggregate_findings
+            ]
+            self._append_values(lines, descriptive_findings)
             for category in ("critical", "error", "warning", "keyword_observation"):
                 if category in category_counts:
                     lines.append(f"{category.upper()} findings: {category_counts[category]}")
