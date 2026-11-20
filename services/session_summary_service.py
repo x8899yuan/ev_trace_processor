@@ -3,18 +3,18 @@ from services.engineering_value_formatter import EngineeringValueFormatter
 
 
 class TestSessionSummaryService:
-    TRACE_ORDER = ("blf", "dlt", "pcap", "mf4")
-    TRACE_LABELS = {"blf": "BLF", "dlt": "DLT", "pcap": "PCAP", "mf4": "MF4"}
+    TRACE_ORDER = ("blf", "dlt", "pcap", "mf4", "asc")
+    TRACE_LABELS = {"blf": "BLF", "dlt": "DLT", "pcap": "PCAP", "mf4": "MF4", "asc": "ASC"}
 
-    def save_summary(self, *, vehicle_identity=None, blf=None, dlt=None, pcap=None, mf4=None, run_id: str | None = None) -> Path:
-        traces = self._validated_traces(blf=blf, dlt=dlt, pcap=pcap, mf4=mf4)
+    def save_summary(self, *, vehicle_identity=None, blf=None, dlt=None, pcap=None, mf4=None, asc=None, run_id: str | None = None) -> Path:
+        traces = self._validated_traces(blf=blf, dlt=dlt, pcap=pcap, mf4=mf4, asc=asc)
         output = self._output_path(run_id)
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_text(self.generate_summary(vehicle_identity=vehicle_identity, **traces), encoding="utf-8")
         return output.resolve()
 
-    def generate_summary(self, *, vehicle_identity=None, blf=None, dlt=None, pcap=None, mf4=None) -> str:
-        traces = self._validated_traces(blf=blf, dlt=dlt, pcap=pcap, mf4=mf4)
+    def generate_summary(self, *, vehicle_identity=None, blf=None, dlt=None, pcap=None, mf4=None, asc=None) -> str:
+        traces = self._validated_traces(blf=blf, dlt=dlt, pcap=pcap, mf4=mf4, asc=asc)
         lines = ["Vehicle Test Session Engineering Summary", "=" * 80]
         if vehicle_identity and vehicle_identity.get("vin"):
             lines.extend(["", "Vehicle Identity", "-" * 80])
@@ -46,7 +46,7 @@ class TestSessionSummaryService:
     def _validated_traces(self, **traces) -> dict:
         normalized = {key: traces.get(key) for key in self.TRACE_ORDER}
         if not any(normalized.values()):
-            raise ValueError("No supported traces were provided. Supply at least one BLF, DLT, PCAP, or MF4 trace.")
+            raise ValueError("No supported traces were provided. Supply at least one BLF, DLT, PCAP, MF4, or ASC trace.")
         return normalized
 
     def _append_trace(self, lines, key, result):
@@ -102,6 +102,25 @@ class TestSessionSummaryService:
                     lines.append(f"TLS server certificate: {'OBSERVED' if tls['server_certificate_observed'] else 'NOT_OBSERVED'}")
                 if "client_certificate_observed" in tls:
                     lines.append(f"TLS client-certificate authentication: {'OBSERVED' if tls['client_certificate_observed'] else 'NOT_OBSERVED'}")
+        elif key == "asc":
+            captures = result.get("captures") or []
+            lines.append(f"ASC traces analyzed: {len(captures)}")
+            for capture in captures:
+                source = capture.get("source_file")
+                lines.extend(["", Path(str(source)).name if source else "ASC source not supplied"])
+                charging = capture.get("charging_analysis") or {}
+                for field, label in (
+                    ("classification", "Classification"),
+                    ("charging_progression", "Charging progression"),
+                    ("connector_recognition", "Connector recognition"),
+                    ("control_pilot_recognition", "Control-pilot recognition"),
+                    ("charging_request", "Charging request"),
+                    ("charging_workflow", "Charging workflow"),
+                    ("root_cause_status", "Root cause status"),
+                    ("engineering_conclusion", "Engineering conclusion"),
+                ):
+                    if field in charging:
+                        lines.append(f"{label}: {charging[field]}")
         elif key == "mf4":
             if "cp_fault_observed" in result:
                 lines.append(f"Explicit CP fault observed: {'YES' if result['cp_fault_observed'] else 'NO'}")
@@ -131,6 +150,10 @@ class TestSessionSummaryService:
         sources = result.get("source_files", [])
         if sources:
             return ", ".join(Path(str(value)).name for value in sources)
+        captures = result.get("captures") or []
+        capture_sources = [item.get("source_file") for item in captures if isinstance(item, dict) and item.get("source_file")]
+        if capture_sources:
+            return ", ".join(Path(str(value)).name for value in capture_sources)
         return "source not supplied"
 
     def _output_path(self, run_id: str | None = None) -> Path:

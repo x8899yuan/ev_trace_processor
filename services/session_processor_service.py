@@ -11,7 +11,7 @@ from services.session_summary_service import TestSessionSummaryService
 
 
 class SessionProcessorService:
-    TRACE_ORDER = ("blf", "dlt", "pcap", "mf4")
+    TRACE_ORDER = ("blf", "dlt", "pcap", "mf4", "asc")
 
     def __init__(
         self,
@@ -47,7 +47,7 @@ class SessionProcessorService:
         supplied = [trace_type for trace_type in self.TRACE_ORDER if traces[trace_type]]
 
         if not supplied:
-            raise ValueError("No supported traces were provided. Supply at least one BLF, DLT, PCAP, or MF4 trace.")
+            raise ValueError("No supported traces were provided. Supply at least one BLF, DLT, PCAP, MF4, or ASC trace.")
 
         missing_handlers = [trace_type for trace_type in supplied if trace_type not in self._handlers]
         if missing_handlers:
@@ -127,6 +127,7 @@ class SessionProcessorService:
             din70121=pcap.get("din70121") if pcap else None,
             iso15118_tls=pcap.get("iso15118_tls") if pcap else None,
             mf4=raw_results.get("mf4"),
+            asc=raw_results.get("asc"),
         )
 
 

@@ -6,8 +6,8 @@ from services.html_report_renderer import HtmlReportRenderer
 
 class TestSessionHtmlReportService:
     __test__ = False
-    TRACE_ORDER = ("blf", "dlt", "pcap", "mf4")
-    TRACE_LABELS = {"blf": "BLF", "dlt": "DLT", "pcap": "PCAP / V2G", "mf4": "MF4"}
+    TRACE_ORDER = ("blf", "dlt", "pcap", "mf4", "asc")
+    TRACE_LABELS = {"blf": "BLF", "dlt": "DLT", "pcap": "PCAP / V2G", "mf4": "MF4", "asc": "ASC"}
 
     def __init__(self, renderer: HtmlReportRenderer | None = None) -> None:
         self._renderer = renderer if renderer is not None else HtmlReportRenderer()
@@ -19,7 +19,7 @@ class TestSessionHtmlReportService:
     def generate_report(self, session: dict, manifest: dict) -> str:
         traces = {key: session.get(key) for key in self.TRACE_ORDER}
         if not any(traces.values()):
-            raise ValueError("No supported traces were provided. Supply at least one BLF, DLT, PCAP, or MF4 trace.")
+            raise ValueError("No supported traces were provided. Supply at least one BLF, DLT, PCAP, MF4, or ASC trace.")
         sections = []
         vehicle = session.get("vehicle_identity") or {}
         if vehicle.get("vin"):
@@ -98,6 +98,27 @@ class TestSessionHtmlReportService:
                 section["rows"].append({"label": "ISO 15118 / TLS", "value": tls.get("status", "INDETERMINATE")})
                 if tls.get("tls_version"):
                     section["rows"].append({"label": "TLS version", "value": tls["tls_version"]})
+        if key == "asc":
+            captures = result.get("captures") or []
+            section["rows"].append({"label": "ASC traces analyzed", "value": len(captures)})
+            for capture in captures:
+                source = capture.get("source_file")
+                charging = capture.get("charging_analysis") or {}
+                if source:
+                    section["items"].append(Path(str(source)).name)
+                for field, label in (
+                    ("classification", "Classification"),
+                    ("charging_progression", "Charging progression"),
+                    ("connector_recognition", "Connector recognition"),
+                    ("control_pilot_recognition", "Control-pilot recognition"),
+                    ("charging_request", "Charging request"),
+                    ("charging_workflow", "Charging workflow"),
+                    ("root_cause_status", "Root cause status"),
+                    ("engineering_conclusion", "Engineering conclusion"),
+                ):
+                    if field in charging:
+                        display_label = f"{Path(str(source)).name}: {label}" if source and len(captures) > 1 else label
+                        section["rows"].append({"label": display_label, "value": charging[field]})
         section["links"] = self._renderer.build_manifest_links(manifest_entry.get("reports", []))
         if key == "mf4" and "cp_fault_observed" in result:
             section["rows"].append({"label": "Explicit CP fault observed", "value": "YES" if result["cp_fault_observed"] else "NO"})
@@ -117,6 +138,10 @@ class TestSessionHtmlReportService:
         sources = result.get("source_files", [])
         if sources:
             return ", ".join(Path(str(value)).name for value in sources)
+        captures = result.get("captures") or []
+        capture_sources = [item.get("source_file") for item in captures if isinstance(item, dict) and item.get("source_file")]
+        if capture_sources:
+            return ", ".join(Path(str(value)).name for value in capture_sources)
         return "source not supplied"
 
     def _output_path(self, run_id: str | None = None):

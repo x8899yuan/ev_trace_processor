@@ -1,8 +1,14 @@
 from pathlib import Path
 
+from readers.asc_reader import AscReader
 from readers.blf_reader import BlfReader
 from readers.dlt_reader import DltReader
 from readers.pcap_reader import PcapReader
+from services.asc_charging_analysis_service import AscChargingAnalysisService
+from services.asc_charging_inspection_report_service import AscChargingInspectionReportService
+from services.asc_dbc_decoder_service import AscDbcDecoderService
+from services.asc_inventory_service import AscInventoryService
+from services.asc_statistics_service import AscStatisticsService
 from services.blf_charging_fault_correlation_service import BlfChargingFaultCorrelationService
 from services.blf_inventory_report_service import BlfInventoryReportService
 from services.blf_inventory_service import BlfInventoryService
@@ -38,6 +44,7 @@ class SessionTraceHandlers:
             "dlt": self.handle_dlt,
             "pcap": self.handle_pcap,
             "mf4": self.handle_mf4,
+            "asc": self.handle_asc,
         }
 
     def handle_blf(self, files: list[Path]) -> dict:
@@ -177,6 +184,49 @@ class SessionTraceHandlers:
         analysis = Mf4ChargingAnalysisService().analyze(mf4_file)
         Mf4ReportService().save_report(analysis)
         return analysis
+
+    def handle_asc(self, files: list[Path]) -> dict:
+        if not files:
+            raise ValueError("ASC handler requires at least one trace")
+        if not self.dbc_file.exists():
+            raise FileNotFoundError(f"DBC file not found: {self.dbc_file}")
+
+        reader = AscReader()
+        decoder = AscDbcDecoderService()
+        analyzer = AscChargingAnalysisService()
+        reporter = AscChargingInspectionReportService()
+        captures = []
+
+        for path in files:
+            asc_file = Path(path)
+            trace = reader.read(asc_file)
+            inventory = AscInventoryService().analyze(trace)
+            statistics = AscStatisticsService().analyze(trace)
+            dbc_analysis = decoder.decode(
+                trace,
+                self.dbc_file,
+                target_signals=AscChargingAnalysisService.TARGET_SIGNALS,
+            )
+            charging = analyzer.analyze(dbc_analysis)
+            report_path = reporter.generate(
+                charging,
+                Path("reports") / "asc" / f"{asc_file.stem}_asc_charging.txt",
+            )
+            captures.append(
+                {
+                    "source_file": str(asc_file),
+                    "inventory": inventory,
+                    "statistics": statistics,
+                    "charging_analysis": charging,
+                    "charging_report": str(report_path),
+                }
+            )
+
+        return {
+            "analysis_status": "OBSERVED" if captures else "NOT_OBSERVED",
+            "file_count": len(captures),
+            "captures": captures,
+        }
 
     def _fault_summary(self, signal_name: str, samples: list[dict]) -> dict:
         ordered = sorted(samples, key=lambda sample: sample["timestamp"])

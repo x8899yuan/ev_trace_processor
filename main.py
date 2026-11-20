@@ -11,6 +11,7 @@ SUPPORTED = {
     "dlt": (Path("data/dlt"), {".dlt"}),
     "pcap": (Path("data/pcap"), {".pcap", ".pcapng"}),
     "mf4": (Path("data/MF4"), {".mf4"}),
+    "asc": (Path("data/asc"), {".asc"}),
 }
 
 
@@ -33,7 +34,7 @@ def discover_traces() -> dict[str, list[Path]]:
 def print_discovery(discovered: dict[str, list[Path]]) -> None:
     print("DISCOVERED TRACES")
     print("=" * 80)
-    for trace_type in ("blf", "dlt", "pcap", "mf4"):
+    for trace_type in ("blf", "dlt", "pcap", "mf4", "asc"):
         files = discovered[trace_type]
         if not files:
             continue
@@ -64,7 +65,7 @@ def main() -> int:
     discovered = discover_traces()
     if not any(discovered.values()):
         print("No supported traces were provided.")
-        print("Place at least one BLF, DLT, PCAP, or MF4 trace in its data directory.")
+        print("Place at least one BLF, DLT, PCAP, MF4, or ASC trace in its data directory.")
         return 2
 
     print_discovery(discovered)

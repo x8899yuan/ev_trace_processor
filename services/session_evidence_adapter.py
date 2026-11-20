@@ -56,13 +56,53 @@ class TestSessionEvidenceAdapter:
             "iso15118_tls_assessment": self._tls_assessment(iso15118_tls),
         }
 
-    def build_session_inputs(self, *, vehicle_identity: dict | None = None, blf: dict | None = None, dlt_analysis: dict | None = None, pcap_analysis: dict | None = None, din70121: dict | None = None, iso15118_tls: dict | None = None, mf4: dict | None = None) -> dict:
+    def adapt_asc(self, analysis: dict | None) -> dict | None:
+        if not analysis:
+            return None
+        captures = []
+        for item in analysis.get("captures") or []:
+            if not isinstance(item, dict):
+                continue
+            charging = item.get("charging_analysis") or {}
+            captures.append(
+                {
+                    "source_file": item.get("source_file"),
+                    "inventory": self._copy_dict(item.get("inventory")),
+                    "statistics": self._copy_dict(item.get("statistics")),
+                    "charging_analysis": {
+                        key: charging.get(key)
+                        for key in (
+                            "classification",
+                            "charging_progression",
+                            "connector_recognition",
+                            "control_pilot_recognition",
+                            "charging_request",
+                            "charging_workflow",
+                            "root_cause_status",
+                            "engineering_conclusion",
+                        )
+                        if key in charging
+                    },
+                    "charging_report": item.get("charging_report"),
+                }
+            )
+        return {
+            "analysis_status": analysis.get(
+                "analysis_status",
+                "OBSERVED" if captures else "NOT_OBSERVED",
+            ),
+            "file_count": int(analysis.get("file_count", len(captures)) or 0),
+            "captures": captures,
+        }
+
+    def build_session_inputs(self, *, vehicle_identity: dict | None = None, blf: dict | None = None, dlt_analysis: dict | None = None, pcap_analysis: dict | None = None, din70121: dict | None = None, iso15118_tls: dict | None = None, mf4: dict | None = None, asc: dict | None = None) -> dict:
         return {
             "vehicle_identity": vehicle_identity,
             "blf": blf,
             "dlt": self.adapt_dlt(dlt_analysis),
             "pcap": self.adapt_pcap(pcap_analysis, din70121=din70121, iso15118_tls=iso15118_tls),
             "mf4": mf4,
+            "asc": self.adapt_asc(asc),
         }
 
     def _dlt_fault_findings(self, category_counts: dict) -> list[str]:
