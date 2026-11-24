@@ -48,13 +48,13 @@ class AscChargingInspectionReportService:
         if timeline:
             lines.append(f"Reference timestamp: {self._time(analysis.get('reference_timestamp'))} (+0.000 s)")
             lines.append("")
-            lines.append(f"{'ASC timestamp':<16} {'Relative time':<14} {'Signal transition':<48} Engineering meaning")
-            lines.append(f"{'-' * 15:<16} {'-' * 13:<14} {'-' * 47:<48} {'-' * 40}")
+            lines.append("ASC timestamp | Relative time | Signal transition | Engineering meaning")
+            lines.append("-" * 120)
             for event in timeline:
                 lines.append(
-                    f"{self._time(event.get('timestamp')):<16} "
-                    f"{str(event.get('relative_time', 'Unknown')):<14} "
-                    f"{str(event.get('signal_transition', 'Unknown')):<48} "
+                    f"{self._time(event.get('timestamp'))} | "
+                    f"{event.get('relative_time', 'Unknown')} | "
+                    f"{event.get('signal_transition', 'Unknown')} | "
                     f"{event.get('engineering_meaning', 'No engineering interpretation available.')}"
                 )
         else:

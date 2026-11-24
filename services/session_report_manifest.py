@@ -17,6 +17,7 @@ class TestSessionReportManifest:
                 "DLT": {"title": "DLT", "reports": self._discover_reports(root, "dlt", run_id)},
                 "PCAP": {"title": "PCAP / V2G", "reports": self._pcap_navigation(root, run_id)},
                 "MF4": {"title": "MF4", "reports": self._discover_reports(root, "mf4", run_id)},
+                "ASC": {"title": "ASC", "reports": self._discover_reports(root, "asc", run_id)},
             },
         }
 
@@ -94,4 +95,6 @@ class TestSessionReportManifest:
             "iso15118_tls_case_summary": "ISO 15118 / TLS Case Summary",
             "iso15118_tls_certificate_inventory": "Certificate Inventory",
         }
+        if stem.endswith("_asc_charging"):
+            return "ASC Charging Inspection Report"
         return labels.get(stem, stem.replace("_", " ").replace("-", " ").strip().title())

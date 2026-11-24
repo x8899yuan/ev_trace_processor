@@ -6,6 +6,7 @@ from readers.dlt_reader import DltReader
 from readers.pcap_reader import PcapReader
 from services.asc_charging_analysis_service import AscChargingAnalysisService
 from services.asc_charging_inspection_report_service import AscChargingInspectionReportService
+from services.asc_charging_html_report_service import AscChargingHtmlReportService
 from services.asc_dbc_decoder_service import AscDbcDecoderService
 from services.asc_inventory_service import AscInventoryService
 from services.asc_statistics_service import AscStatisticsService
@@ -212,6 +213,10 @@ class SessionTraceHandlers:
                 charging,
                 Path("reports") / "asc" / f"{asc_file.stem}_asc_charging.txt",
             )
+            html_report_path = AscChargingHtmlReportService().generate(
+                charging,
+                Path("reports") / "asc" / f"{asc_file.stem}_asc_charging.html",
+            )
             captures.append(
                 {
                     "source_file": str(asc_file),
@@ -219,6 +224,7 @@ class SessionTraceHandlers:
                     "statistics": statistics,
                     "charging_analysis": charging,
                     "charging_report": str(report_path),
+                    "charging_html_report": str(html_report_path),
                 }
             )
 

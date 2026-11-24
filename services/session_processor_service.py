@@ -86,13 +86,19 @@ class SessionProcessorService:
     def _report_snapshot(self, root: Path) -> dict[Path, tuple[int, int]]:
         if not root.exists():
             return {}
-        return {path.resolve(): (path.stat().st_mtime_ns, path.stat().st_size) for path in root.rglob("*.txt")}
+        return {
+            path.resolve(): (path.stat().st_mtime_ns, path.stat().st_size)
+            for path in root.rglob("*")
+            if path.is_file() and path.suffix.lower() in {".txt", ".html"}
+        }
 
     def _timestamp_current_reports(self, root: Path, before: dict, run_id: str) -> list[Path]:
         if not root.exists():
             return []
         outputs = []
-        for path in sorted(root.rglob("*.txt")):
+        for path in sorted(root.rglob("*")):
+            if not path.is_file() or path.suffix.lower() not in {".txt", ".html"}:
+                continue
             resolved = path.resolve()
             state = (path.stat().st_mtime_ns, path.stat().st_size)
             if before.get(resolved) == state:
