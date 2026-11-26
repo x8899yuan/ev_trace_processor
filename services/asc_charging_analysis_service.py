@@ -9,6 +9,7 @@ class AscChargingAnalysisService:
         "charging_request": ("HVLM_Ladevorgang_Anf",),
         "charging_workflow": ("HVLM_ZustandLadeablauf",),
         "heater_fault": ("KL_Fehler_HV_Heizer",),
+        "v2l": ("HVLM_OBG_SollModus", "HVLE_OBG_IstModus", "HVLM_V2L_STDSollSpannung", "HVLM_V2X_SollFrequenz", "HVLX_V2X_IstModus"),
     }
     TARGET_SIGNALS = frozenset(
         signal
@@ -62,6 +63,7 @@ class AscChargingAnalysisService:
         event_timeline = self._event_timeline(timelines)
         reference_timestamp = event_timeline[0]["timestamp"] if event_timeline else None
         heater_faults = self._heater_fault_analysis(timelines["KL_Fehler_HV_Heizer"])
+        v2l = self._v2l_assessment(timelines)
         return {
             "source_file": dbc_analysis.get("source_file"),
             "classification": classification,
@@ -78,11 +80,55 @@ class AscChargingAnalysisService:
             "signals": signals,
             "signal_value_translations": dict(self.VALUE_TRANSLATIONS),
             "heater_fault_analysis": heater_faults,
+            "v2l_assessment": v2l,
             "engineering_conclusion": self._conclusion(classification),
             "evidence_limitations": [
                 "The analysis identifies observed charging progression and stopping stage from decoded ASC signals.",
                 "Observed state agreement and event ordering do not by themselves establish the underlying physical root cause.",
             ],
+        }
+
+    def _v2l_assessment(self, timelines):
+        names = self.SIGNAL_GROUPS["v2l"]
+        rows = {name: sorted(timelines.get(name, []), key=lambda x: x["timestamp"]) for name in names}
+        def is_reverse(value):
+            value = str(value).casefold()
+            return any(token in value for token in ("rueckspeis", "rückspeis", "reverse", "export"))
+        def is_standby(value):
+            return str(value).strip().casefold() in ("standby", "0", "inactive", "inaktiv")
+        requested = any(is_reverse(x["value"]) for x in rows[names[0]])
+        active = any(is_reverse(x["value"]) for x in rows[names[1]])
+        if active:
+            classification = "REVERSE_POWER_REPORTED_ACTIVE"
+        elif requested:
+            classification = "REVERSE_POWER_REQUESTED_NOT_CONFIRMED_ACTIVE"
+        elif rows[names[0]] and rows[names[1]] and all(is_standby(x["value"]) for name in names[:2] for x in rows[name]):
+            classification = "REVERSE_POWER_NOT_OBSERVED"
+        else:
+            classification = "INSUFFICIENT_EVIDENCE"
+        details = {}
+        for name in names:
+            samples = rows[name]
+            summary = self._summarize_signal(samples) if samples else {}
+            details[name] = {
+                "sample_count": len(samples),
+                "first_timestamp": summary.get("first_timestamp"),
+                "last_timestamp": summary.get("last_timestamp"),
+                "unique_values": summary.get("unique_values", []),
+                "transitions": summary.get("transitions", []),
+            }
+        return {
+            "classification": classification,
+            "reverse_power_requested": "OBSERVED" if requested else "NOT_OBSERVED" if rows[names[0]] else "NOT_DECODED",
+            "reverse_power_active": "REPORTED" if active else "NOT_OBSERVED" if rows[names[1]] else "NOT_DECODED",
+            "v2l_operation_confirmed": "NOT_CONFIRMED",
+            "signals": details,
+            "engineering_conclusion": {
+                "REVERSE_POWER_REPORTED_ACTIVE": "Reverse operation was reported by the onboard charger; actual electrical power output is not independently confirmed.",
+                "REVERSE_POWER_REQUESTED_NOT_CONFIRMED_ACTIVE": "Reverse operation was requested but was not confirmed active.",
+                "REVERSE_POWER_NOT_OBSERVED": "Requested and actual onboard charger modes remained in Standby; reverse operation was not observed.",
+                "INSUFFICIENT_EVIDENCE": "Decoded evidence is insufficient to determine reverse operation.",
+            }[classification],
         }
 
     def _summarize_signal(self, samples: list[dict]) -> dict:

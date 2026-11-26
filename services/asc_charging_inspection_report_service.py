@@ -94,6 +94,23 @@ class AscChargingInspectionReportService:
                 lines.append(f"    ... {len(transitions) - 20} additional transitions omitted")
             if index < len(observed_names) - 1:
                 lines.append("")
+        v2l = analysis.get("v2l_assessment") or {}
+        if v2l:
+            lines.extend(["", "V2L OPERATION ASSESSMENT", "-" * 120,
+                f"Classification: {v2l.get('classification', 'INSUFFICIENT_EVIDENCE')}",
+                f"Reverse power requested: {v2l.get('reverse_power_requested', 'NOT_DECODED')}",
+                f"Reverse power active: {v2l.get('reverse_power_active', 'NOT_DECODED')}",
+                f"V2L operation confirmed: {v2l.get('v2l_operation_confirmed', 'NOT_CONFIRMED')}"])
+            for name, signal in v2l.get("signals", {}).items():
+                values = ", ".join(map(str, signal.get("unique_values", []))) or "Not decoded"
+                lines.extend([f"{name}: {values}",
+                    f"{name} samples: {signal.get('sample_count', 0)}",
+                    f"{name} first timestamp: {self._time(signal.get('first_timestamp'))}",
+                    f"{name} last timestamp: {self._time(signal.get('last_timestamp'))}"])
+                for transition in signal.get("transitions", []):
+                    lines.append(f"{name} transition: {self._time(transition.get('timestamp'))} | {transition.get('value')} | channel={transition.get('channel')} | can_id={self._can_id(transition.get('arbitration_id'))}")
+            lines.append(f"V2L engineering conclusion: {v2l.get('engineering_conclusion', 'Not established')}")
+
         heater = analysis.get("heater_fault_analysis") or {}
         lines.extend([
             "",
